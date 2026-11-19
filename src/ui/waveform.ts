@@ -1,11 +1,11 @@
-/** Fixed test length. Long enough to contain a musical phrase, short enough to
- *  remember while comparing versions in the ABX test. */
+/** Default test length. Long enough to contain a musical phrase, short enough
+ *  to remember while comparing versions in the ABX test. */
 export const REGION_SECONDS = 10;
 /** Arrow keys move the region by this much, for keyboard users. */
 const KEY_STEP_SECONDS = 0.5;
 
 /**
- * Canvas waveform with a draggable fixed-length region.
+ * Canvas waveform with a draggable region of adjustable length.
  * Pointer events cover mouse, touch and pen with one code path.
  */
 export class WaveformView {
@@ -48,6 +48,17 @@ export class WaveformView {
     this.start = 0;
     this.playhead = null;
     this.resize();
+  }
+
+  /**
+   * Places the region from code (for example the auto-picked passage).
+   * Unlike a drag, this does not call onRegionChange: that callback means
+   * "the user moved it".
+   */
+  setRegion(startSeconds: number, lengthSeconds: number): void {
+    this.regionLength = Math.min(lengthSeconds, this.duration);
+    this.start = Math.min(Math.max(0, startSeconds), this.duration - this.regionLength);
+    this.draw();
   }
 
   /** Absolute time in the song to mark, or null to hide the marker. */

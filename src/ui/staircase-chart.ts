@@ -36,8 +36,8 @@ export function renderStaircaseChart(trials: readonly ChartTrial[], thresholdDb:
   parts.push(
     `<line x1="${m.left}" x2="${width - m.right}" y1="${y(0)}" y2="${y(0)}" style="stroke:var(--muted);stroke-width:1.5" />`,
     `<text x="${width - m.right}" y="${y(0) - 6}" text-anchor="end" style="fill:var(--muted);font-size:16px">standard model</text>`,
-    `<line x1="${m.left}" x2="${width - m.right}" y1="${y(thresholdDb)}" y2="${y(thresholdDb)}" style="stroke:var(--ok);stroke-dasharray:6 4;stroke-width:1.5" />`,
-    `<text x="${m.left + 6}" y="${y(thresholdDb) - 6}" style="fill:var(--ok);font-size:16px">your threshold</text>`,
+    `<line x1="${m.left}" x2="${width - m.right}" y1="${y(thresholdDb)}" y2="${y(thresholdDb)}" style="stroke:var(--accent);stroke-dasharray:6 4;stroke-width:1.5" />`,
+    `<text x="${m.left + 6}" y="${y(thresholdDb) - 6}" style="fill:var(--accent);font-size:16px">your threshold</text>`,
   );
 
   const step = trials.length > 15 ? 5 : 1;

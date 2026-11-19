@@ -12,7 +12,7 @@ export const ABSOLUTE_GATE_LUFS = -70;
 /** Blocks more than 10 LU below the (absolute-gated) average are ignored too,
  *  so quiet intros or pauses do not drag the measurement down. */
 export const RELATIVE_GATE_LU = -10;
-const BLOCK_SECONDS = 0.4;
+// Gating blocks are 400 ms long: four of the 100 ms steps below.
 /** 75% overlap between blocks, as the standard specifies. */
 const STEP_SECONDS = 0.1;
 /** BS.1770 constant that makes a 1 kHz full-scale sine read -3.01 LUFS. */
@@ -72,67 +72,70 @@ export function kWeightingFilters(sampleRate: number): [Biquad, Biquad] {
   return [shelf, highPass];
 }
 
-function runBiquad(input: ArrayLike<number>, f: Biquad, out: Float64Array): void {
-  // Transposed direct form II in float64: two state variables, and numerically
-  // well behaved for a high-pass this close to 0 Hz.
-  let z1 = 0;
-  let z2 = 0;
-  for (let i = 0; i < input.length; i++) {
-    const x = input[i];
-    const y = f.b0 * x + z1;
-    z1 = f.b1 * x - f.a1 * y + z2;
-    z2 = f.b2 * x - f.a2 * y;
-    out[i] = y;
-  }
+/**
+ * K-weighted energy in consecutive 100 ms sub-blocks, summed over channels.
+ *
+ * Every 400 ms gating block is exactly four sub-blocks, so block energies
+ * come from adding four numbers. This keeps memory to one number per 100 ms
+ * instead of several song-length buffers, which matters for whole songs.
+ */
+interface SubBlocks {
+  sums: Float64Array;
+  /** Samples per sub-block (100 ms); a block is 4 of these. */
+  step: number;
+  length: number;
+  total: number;
 }
 
-export function kWeight(signal: ArrayLike<number>, sampleRate: number): Float64Array {
-  const [shelf, highPass] = kWeightingFilters(sampleRate);
-  const stage1 = new Float64Array(signal.length);
-  runBiquad(signal, shelf, stage1);
-  const stage2 = new Float64Array(signal.length);
-  runBiquad(stage1, highPass, stage2);
-  return stage2;
+function measureSubBlocks(channels: readonly Float32Array[], sampleRate: number): SubBlocks {
+  const length = channels[0]?.length ?? 0;
+  const step = Math.max(1, Math.round(STEP_SECONDS * sampleRate));
+  const sums = new Float64Array(Math.ceil(length / step));
+  const [s, h] = kWeightingFilters(sampleRate);
+  let total = 0;
+  for (const channel of channels) {
+    // Both biquads run inline (transposed direct form II, float64), with
+    // no intermediate arrays. Two state variables per stage.
+    let s1 = 0;
+    let s2 = 0;
+    let h1 = 0;
+    let h2 = 0;
+    for (let i = 0; i < length; i++) {
+      const x = channel[i];
+      const y = s.b0 * x + s1;
+      s1 = s.b1 * x - s.a1 * y + s2;
+      s2 = s.b2 * x - s.a2 * y;
+      const z = h.b0 * y + h1;
+      h1 = h.b1 * y - h.a1 * z + h2;
+      h2 = h.b2 * y - h.a2 * z;
+      const e = z * z;
+      sums[Math.floor(i / step)] += e;
+      total += e;
+    }
+  }
+  return { sums, step, length, total };
 }
 
 function blockLoudness(power: number): number {
   return LOUDNESS_OFFSET + 10 * Math.log10(power);
 }
 
-/**
- * Integrated loudness in LUFS, or -Infinity if everything is gated out
- * (silence). `gain` scales the signal virtually, which lets gain matching
- * re-measure without copying audio.
- *
- * All channels get weight 1.0, which is correct for mono and stereo; the
- * standard's 1.41 surround weights are not needed here.
- */
-export function integratedLoudness(channels: readonly Float32Array[], sampleRate: number, gain = 1): number {
-  const length = channels[0]?.length ?? 0;
-  if (length === 0) return -Infinity;
-
-  // Prefix sums of K-weighted squared samples (summed over channels) make the
-  // mean square of any block a single subtraction, instead of re-summing 400 ms
-  // of audio for each of the overlapping blocks.
-  const prefix = new Float64Array(length + 1);
+/** Gated loudness from sub-block energies, for the signal scaled by `gain`. */
+function gatedLoudness(m: SubBlocks, gain: number): number {
+  if (m.length === 0) return -Infinity;
   const g2 = gain * gain;
-  const squares = new Float64Array(length);
-  for (const channel of channels) {
-    const y = kWeight(channel, sampleRate);
-    for (let i = 0; i < length; i++) squares[i] += y[i] * y[i] * g2;
-  }
-  for (let i = 0; i < length; i++) prefix[i + 1] = prefix[i] + squares[i];
-
-  const blockLength = Math.round(BLOCK_SECONDS * sampleRate);
-  const step = Math.round(STEP_SECONDS * sampleRate);
+  const blockLength = 4 * m.step;
   const blockPowers: number[] = [];
-  if (length < blockLength) {
+  if (m.length < blockLength) {
     // Shorter than one block: the standard is undefined here, so the whole
     // signal is treated as a single block rather than returning nothing.
-    blockPowers.push(prefix[length] / length);
+    blockPowers.push((m.total * g2) / m.length);
   } else {
-    for (let start = 0; start + blockLength <= length; start += step) {
-      blockPowers.push((prefix[start + blockLength] - prefix[start]) / blockLength);
+    // Blocks start every 100 ms (75% overlap) and must fit inside the signal.
+    const blocks = Math.floor((m.length - blockLength) / m.step) + 1;
+    for (let j = 0; j < blocks; j++) {
+      const sum = m.sums[j] + m.sums[j + 1] + m.sums[j + 2] + m.sums[j + 3];
+      blockPowers.push((sum * g2) / blockLength);
     }
   }
 
@@ -141,6 +144,17 @@ export function integratedLoudness(channels: readonly Float32Array[], sampleRate
   const relativeGate = blockLoudness(mean(aboveAbsolute)) + RELATIVE_GATE_LU;
   const gated = aboveAbsolute.filter((p) => blockLoudness(p) > relativeGate);
   return blockLoudness(mean(gated));
+}
+
+/**
+ * Integrated loudness in LUFS, or -Infinity if everything is gated out
+ * (silence). `gain` scales the signal virtually, without copying audio.
+ *
+ * All channels get weight 1.0, which is correct for mono and stereo; the
+ * standard's 1.41 surround weights are not needed here.
+ */
+export function integratedLoudness(channels: readonly Float32Array[], sampleRate: number, gain = 1): number {
+  return gatedLoudness(measureSubBlocks(channels, sampleRate), gain);
 }
 
 function mean(values: readonly number[]): number {
@@ -188,8 +202,11 @@ export function matchLoudness(
   processed: readonly Float32Array[],
   sampleRate: number,
 ): LoudnessMatch {
-  const originalLufs = integratedLoudness(original, sampleRate);
-  const processedLufs = integratedLoudness(processed, sampleRate);
+  // Each signal is filtered once; re-measuring at a new gain only re-runs the gating.
+  const originalBlocks = measureSubBlocks(original, sampleRate);
+  const processedBlocks = measureSubBlocks(processed, sampleRate);
+  const originalLufs = gatedLoudness(originalBlocks, 1);
+  const processedLufs = gatedLoudness(processedBlocks, 1);
   let gain = 1;
   let matchedLufs = processedLufs;
 
@@ -199,7 +216,7 @@ export function matchLoudness(
     // a block crosses the -70 LUFS absolute gate and the gating changes.
     gain = Math.pow(10, (originalLufs - processedLufs) / 20);
     for (let i = 0; i < 3; i++) {
-      matchedLufs = integratedLoudness(processed, sampleRate, gain);
+      matchedLufs = gatedLoudness(processedBlocks, gain);
       const error = originalLufs - matchedLufs;
       if (Math.abs(error) < MATCH_TOLERANCE_LU) break;
       gain *= Math.pow(10, error / 20);

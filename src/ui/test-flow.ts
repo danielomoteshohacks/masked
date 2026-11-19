@@ -13,7 +13,12 @@ import type { EngineClient } from '../engine/client';
 import { PEAK_CEILING, samplePeak } from '../engine/loudness';
 import { interpretThreshold, scoreTrials } from '../quiz/scoring';
 import { Staircase } from '../quiz/staircase';
+import { addHistory, type HistoryEntry } from './history';
+import { renderResultCard } from './result-card';
 import { renderStaircaseChart } from './staircase-chart';
+
+/** Why the user came: changes the wording around the result, not the test. */
+export type Intent = 'lossless' | 'wasted' | 'fatigue';
 
 /** The section under test. Channels already have their loop-edge fades. */
 export interface TestRegion {
@@ -22,6 +27,7 @@ export interface TestRegion {
   durationSeconds: number;
   sampleRate: number;
   channels: Float32Array[];
+  intent: Intent;
 }
 
 interface TrialAudio {
@@ -73,7 +79,7 @@ interface Session {
   startedAt: Date;
 }
 
-type Step = 'volume' | 'headphones' | 'quiz' | 'results';
+export type Step = 'volume' | 'headphones' | 'quiz' | 'results';
 type AbxKey = 'A' | 'B' | 'X';
 
 function $<T extends HTMLElement>(selector: string): T {
@@ -102,6 +108,9 @@ export class TestFlow {
   private readonly abxButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-abx]'));
   private readonly answerA = $<HTMLButtonElement>('#answer-a');
   private readonly answerB = $<HTMLButtonElement>('#answer-b');
+  private readonly hpDots = $<HTMLElement>('#hp-dots');
+  private readonly quizFill = $<HTMLElement>('#quiz-fill');
+  private readonly exitButton = $<HTMLButtonElement>('#test-exit');
 
   private readonly player: SyncedPlayer;
   private readonly tonePlayer: RegionPlayer;
@@ -112,6 +121,7 @@ export class TestFlow {
     private readonly context: AudioContext,
     private readonly engine: EngineClient,
     private readonly onExit: () => void,
+    private readonly onStepChange: (step: Step) => void,
   ) {
     this.player = new SyncedPlayer(context, () => this.refreshButtons());
     this.tonePlayer = new RegionPlayer(context, () => this.onTonesEnded());
@@ -126,7 +136,9 @@ export class TestFlow {
     this.answerB.addEventListener('click', () => this.answer('B'));
     $('#export-json').addEventListener('click', () => this.exportJson());
     $('#results-back').addEventListener('click', () => this.exit());
-    $('#test-exit').addEventListener('click', () => this.exit());
+    $('#results-retest').addEventListener('click', () => this.retest());
+    $('#share-card').addEventListener('click', () => void this.shareCard());
+    this.exitButton.addEventListener('click', () => this.exit());
     document.addEventListener('keydown', (e) => this.handleKey(e));
   }
 
@@ -159,8 +171,19 @@ export class TestFlow {
   private show(step: Step): void {
     this.step = step;
     for (const [name, el] of Object.entries(this.steps)) el.hidden = name !== step;
-    this.section.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    // On the results there is nothing left to exit; it has its own buttons.
+    this.exitButton.hidden = step === 'results';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     this.refreshButtons();
+    this.onStepChange(step);
+  }
+
+  /** Same passage again, with a fresh staircase and headphone check. */
+  private retest(): void {
+    const s = this.session;
+    if (!s) return;
+    this.player.stop();
+    this.begin(s.region);
   }
 
   private exit(): void {
@@ -216,7 +239,7 @@ export class TestFlow {
       this.player.stop();
       return;
     }
-    this.player.load({ original: s.original }, s.originalHeadroom);
+    this.player.load({ original: s.original }, { original: { original: 1 } }, s.originalHeadroom);
     this.player.play('original');
   }
 
@@ -237,7 +260,16 @@ export class TestFlow {
     const s = this.session;
     if (!s) return;
     s.tonesPlayed = false;
-    this.hpProgress.textContent = `Round ${s.headphoneRecords.length + 1} of ${HEADPHONE_TRIALS}`;
+    const round = s.headphoneRecords.length;
+    this.hpProgress.textContent = `Round ${round + 1} of ${HEADPHONE_TRIALS}`;
+    this.hpDots.replaceChildren(
+      ...Array.from({ length: HEADPHONE_TRIALS }, (_, i) => {
+        const dot = document.createElement('i');
+        if (i < round) dot.className = 'is-done';
+        else if (i === round) dot.className = 'is-current';
+        return dot;
+      }),
+    );
     this.hpPlay.disabled = false;
     this.hpAnswers.forEach((b) => (b.disabled = true));
   }
@@ -274,6 +306,7 @@ export class TestFlow {
     this.hpPlay.hidden = true;
     this.hpAnswers.forEach((b) => (b.hidden = true));
     this.hpProgress.textContent = '';
+    this.hpDots.replaceChildren();
     if (headphoneCheckPassed(correct)) {
       this.hpResult.textContent = `Headphones confirmed: ${correct} of ${HEADPHONE_TRIALS} correct.`;
     } else {
@@ -305,7 +338,14 @@ export class TestFlow {
     const staircase = s.staircase;
     const offset = staircase.currentOffset;
     this.setQuizButtons(false, false);
-    this.quizProgress.textContent = `Trial ${s.records.length + 1} (at most ${staircase.config.maxTrials})`;
+    this.quizProgress.textContent = `Trial ${s.records.length + 1} · at most ${staircase.config.maxTrials}`;
+    // The staircase usually stops on reversals before the trial limit, so the
+    // bar shows whichever limit is closer to being reached.
+    const done = Math.max(
+      s.records.length / staircase.config.maxTrials,
+      staircase.reversals.length / staircase.config.maxReversals,
+    );
+    this.quizFill.style.width = `${Math.round(100 * done)}%`;
     this.quizStatus.textContent = 'Preparing this trial...';
 
     let audio: TrialAudio;
@@ -330,12 +370,19 @@ export class TestFlow {
     // which of them X is. Nothing about position can be learned over trials.
     const aIsOriginal = Math.random() < 0.5;
     const xIsA = Math.random() < 0.5;
-    const a = aIsOriginal ? s.original : audio.processed;
-    const b = aIsOriginal ? audio.processed : s.original;
-    // X gets its own player voice even though it shares a buffer with A or B,
-    // so switching to X always does a real crossfade, never a no-op that
-    // would sound different and give the answer away.
-    this.player.load({ A: a, B: b, X: xIsA ? a : b }, audio.headroom);
+    const original = { original: 1 };
+    const processed = { processed: 1 };
+    const a = aIsOriginal ? original : processed;
+    const b = aIsOriginal ? processed : original;
+    // X is a mix of the same two sources. Switching from A to an X that equals
+    // A changes no gain at all, and with linear crossfades that is exactly
+    // what a fade between two identical, sample-locked copies would sound
+    // like too, so nothing about the switch itself gives the answer away.
+    this.player.load(
+      { original: s.original, processed: audio.processed },
+      { A: a, B: b, X: xIsA ? a : b },
+      audio.headroom,
+    );
 
     s.current = { offsetDb: offset, aIsOriginal, xIsA, audio, shownAt: performance.now(), switches: 0, heardX: false };
     this.setQuizButtons(true, false);
@@ -412,13 +459,16 @@ export class TestFlow {
     const hp = this.headphoneSummary(s);
     const t = estimate.thresholdDb;
 
+    $('#result-value').textContent = `${t > 0 ? '+' : ''}${t.toFixed(1)} dB`;
     $('#result-headline').textContent = interpretThreshold(t);
+    const caveats: string[] = [];
+    if (!estimate.reliable) caveats.push('Low confidence: the test ended before your answers settled.');
+    if (!hp.passed) caveats.push('Headphones were not confirmed, so this may reflect speaker playback.');
+    const caveat = $('#result-caveat');
+    caveat.hidden = caveats.length === 0;
+    caveat.textContent = caveats.join(' ');
     const rows: [string, string][] = [
-      [
-        'Your threshold',
-        `${t > 0 ? '+' : ''}${t.toFixed(1)} dB from the standard model` +
-          (estimate.reliable ? '' : ' (low confidence: the test ended before the answers settled)'),
-      ],
+      ['Passage', `${formatClock(s.region.startSeconds)}, ${Math.round(s.region.durationSeconds)} s`],
       ['Correct', `${score.correct} of ${score.total} (${score.percentCorrect.toFixed(0)}%)`],
       ['Chance of this by guessing', formatP(score.pValue)],
       ['Sensitivity (d′)', score.dPrime.toFixed(2)],
@@ -435,6 +485,77 @@ export class TestFlow {
       }),
     );
     $('#result-chart').innerHTML = renderStaircaseChart(s.records, t);
+
+    const history = addHistory({
+      at: new Date().toISOString(),
+      thresholdDb: t,
+      reliable: estimate.reliable,
+      headphonesPassed: hp.passed,
+      passageSeconds: Math.round(s.region.durationSeconds),
+      song: s.region.songName,
+    });
+    this.renderHistory(history, s.region.intent);
+  }
+
+  private renderHistory(history: HistoryEntry[], intent: Intent): void {
+    const panel = $('#history-panel');
+    // A single result has nothing to compare with, unless the user came to
+    // track fatigue, where the note explains what to do next.
+    panel.hidden = history.length < 2 && intent !== 'fatigue';
+    $('#history-note').textContent =
+      intent === 'fatigue'
+        ? 'Take the test again after a few hours of listening, with the same song and passage. ' +
+          'A threshold that rises over the day suggests tired ears.'
+        : 'Earlier results on this device, newest first. Use the same song and passage to compare like with like.';
+    const items = history
+      .slice(-8)
+      .reverse()
+      .map((entry, i) => {
+        const li = document.createElement('li');
+        if (i === 0) li.className = 'is-latest';
+        const when = document.createElement('span');
+        when.textContent = `${new Date(entry.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${entry.song}`;
+        const value = document.createElement('b');
+        value.textContent = `${entry.thresholdDb > 0 ? '+' : ''}${entry.thresholdDb.toFixed(1)} dB`;
+        li.append(when, value);
+        return li;
+      });
+    $('#history-list').replaceChildren(...items);
+  }
+
+  /** Saves the result card as a PNG, through the share sheet where available (phones). */
+  private async shareCard(): Promise<void> {
+    const s = this.session;
+    if (!s) return;
+    const estimate = s.staircase.threshold();
+    const score = scoreTrials(s.records);
+    const hp = this.headphoneSummary(s);
+    const blob = await renderResultCard({
+      thresholdDb: estimate.thresholdDb,
+      reliable: estimate.reliable,
+      interpretation: interpretThreshold(estimate.thresholdDb),
+      correct: score.correct,
+      total: score.total,
+      pValueText: formatP(score.pValue),
+      dPrime: score.dPrime,
+      headphonesPassed: hp.passed,
+      passageSeconds: Math.round(s.region.durationSeconds),
+      date: new Date(),
+      trials: s.records,
+      minDb: s.staircase.config.minDb,
+      maxDb: s.staircase.config.maxDb,
+    });
+    const file = new File([blob], 'masked-result.png', { type: 'image/png' });
+    try {
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'My Masked result' });
+        return;
+      }
+    } catch (error) {
+      // Closing the share sheet is not an error worth reporting.
+      if ((error as Error).name === 'AbortError') return;
+    }
+    download(blob, file.name);
   }
 
   private exportJson(): void {
@@ -447,6 +568,7 @@ export class TestFlow {
       startedAt: s.startedAt.toISOString(),
       finishedAt: new Date().toISOString(),
       song: s.region.songName,
+      intent: s.region.intent,
       region: { startSeconds: s.region.startSeconds, durationSeconds: s.region.durationSeconds },
       sampleRate: s.region.sampleRate,
       headphoneCheck: { ...this.headphoneSummary(s), trials: s.headphoneRecords },
@@ -457,14 +579,23 @@ export class TestFlow {
       trials: s.records,
     };
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `masked-results-${s.startedAt.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
-    link.click();
-    // Revoked on the next tick: revoking immediately can cancel the download in some browsers.
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    download(blob, `masked-results-${s.startedAt.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`);
   }
+}
+
+function download(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+  // Revoked later: revoking immediately can cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function formatClock(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  return `${m}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 }
 
 function formatP(p: number): string {

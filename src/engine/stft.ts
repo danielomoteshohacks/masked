@@ -22,36 +22,41 @@ export function sqrtHannWindow(size: number): Float64Array {
   return w;
 }
 
-/** One-sided spectra for every frame, stored flat (frame-major) to keep the
- *  memory in a few large typed arrays instead of hundreds of small ones. */
-export interface Spectrogram {
-  frameCount: number;
-  /** FRAME_SIZE / 2 + 1: DC up to and including Nyquist. */
-  binCount: number;
-  /** Length of the original signal, so synthesis can crop the padding. */
-  signalLength: number;
-  re: Float64Array;
-  im: Float64Array;
-}
-
+/**
+ * Short-time Fourier transform that works one frame at a time.
+ *
+ * Earlier versions kept the whole spectrogram in memory, which is fine for
+ * 10 seconds but about 200 MB per channel for a five-minute song. Processing
+ * frame by frame needs only the output signal and a few scratch buffers.
+ */
 export class Stft {
   readonly frameSize: number;
   readonly hopSize: number;
   readonly binCount: number;
   readonly window: Float64Array;
   private readonly fft: FFT;
-  // Scratch buffers reused for every frame to avoid allocating in the loop.
-  private readonly bufRe: Float64Array;
-  private readonly bufIm: Float64Array;
+  /**
+   * Synthesis window with the weighted-overlap-add normalisation folded in:
+   * w[n] / (w[n]^2 + w[n + hop]^2). Each output sample receives exactly two
+   * contributions (from frames n and n +/- hop), and both see the same
+   * denominator, so dividing up front equals dividing the finished sum. This
+   * avoids keeping a second song-length buffer of window weights.
+   */
+  private readonly synthesisWindow: Float64Array;
 
   constructor(frameSize = FRAME_SIZE, hopSize = HOP_SIZE) {
+    if (hopSize * 2 !== frameSize) throw new Error('This STFT assumes exactly 50% overlap.');
     this.frameSize = frameSize;
     this.hopSize = hopSize;
     this.binCount = frameSize / 2 + 1;
     this.window = sqrtHannWindow(frameSize);
     this.fft = new FFT(frameSize);
-    this.bufRe = new Float64Array(frameSize);
-    this.bufIm = new Float64Array(frameSize);
+    this.synthesisWindow = new Float64Array(frameSize);
+    for (let n = 0; n < frameSize; n++) {
+      const w = this.window[n];
+      const other = this.window[(n + hopSize) % frameSize];
+      this.synthesisWindow[n] = w / (w * w + other * other);
+    }
   }
 
   /**
@@ -64,78 +69,47 @@ export class Stft {
     return Math.floor((signalLength - 1 + this.hopSize) / this.hopSize) + 1;
   }
 
-  private frameStart(frame: number): number {
+  frameStart(frame: number): number {
     return frame * this.hopSize - this.hopSize;
   }
 
-  analyze(signal: ArrayLike<number>): Spectrogram {
-    const { frameSize, binCount, window, bufRe, bufIm } = this;
-    const length = signal.length;
-    const frameCount = this.frameCountFor(length);
-    const re = new Float64Array(frameCount * binCount);
-    const im = new Float64Array(frameCount * binCount);
-
-    for (let f = 0; f < frameCount; f++) {
-      const start = this.frameStart(f);
-      for (let n = 0; n < frameSize; n++) {
-        const i = start + n;
-        // Outside the signal we read zeros: this is the padding described above.
-        bufRe[n] = i >= 0 && i < length ? signal[i] * window[n] : 0;
-        bufIm[n] = 0;
+  /**
+   * Windowed FFT of one frame of the average of `channels` (pass a single
+   * channel to transform just that one). re and im must have frameSize
+   * entries and receive the full, mirror-symmetric spectrum.
+   */
+  forward(channels: readonly ArrayLike<number>[], frame: number, re: Float64Array, im: Float64Array): void {
+    const { frameSize, window } = this;
+    const start = this.frameStart(frame);
+    const length = channels[0]?.length ?? 0;
+    const scale = 1 / Math.max(1, channels.length);
+    for (let n = 0; n < frameSize; n++) {
+      const i = start + n;
+      let v = 0;
+      // Outside the signal we read zeros: this is the padding described above.
+      if (i >= 0 && i < length) {
+        for (const channel of channels) v += channel[i];
+        v *= scale;
       }
-      this.fft.transform(bufRe, bufIm);
-      // A real signal's spectrum is mirror-symmetric, so only the first half
-      // (plus Nyquist) carries information; the rest is rebuilt at synthesis.
-      const offset = f * binCount;
-      for (let k = 0; k < binCount; k++) {
-        re[offset + k] = bufRe[k];
-        im[offset + k] = bufIm[k];
-      }
+      re[n] = v * window[n];
+      im[n] = 0;
     }
-    return { frameCount, binCount, signalLength: length, re, im };
+    this.fft.transform(re, im);
   }
 
   /**
-   * Weighted overlap-add. Each inverse-transformed frame is multiplied by the
-   * synthesis window and summed; then each sample is divided by the total
-   * window weight that landed on it. In the interior that weight is already 1,
-   * but dividing explicitly keeps reconstruction exact for any window/hop pair.
+   * Inverse FFT of a full spectrum (destroying re/im), then overlap-add of the
+   * result into `out` at the frame's position.
    */
-  synthesize(spec: Spectrogram): Float64Array {
-    const { frameSize, binCount, window, bufRe, bufIm } = this;
-    const length = spec.signalLength;
-    const out = new Float64Array(length);
-    const weight = new Float64Array(length);
-
-    for (let f = 0; f < spec.frameCount; f++) {
-      const offset = f * binCount;
-      for (let k = 0; k < binCount; k++) {
-        bufRe[k] = spec.re[offset + k];
-        bufIm[k] = spec.im[offset + k];
-      }
-      // DC and Nyquist of a real signal have no imaginary part; forcing zero
-      // guarantees the inverse comes out purely real.
-      bufIm[0] = 0;
-      bufIm[binCount - 1] = 0;
-      // Rebuild the mirrored half: X[N-k] = conj(X[k]).
-      for (let k = 1; k < binCount - 1; k++) {
-        bufRe[frameSize - k] = bufRe[k];
-        bufIm[frameSize - k] = -bufIm[k];
-      }
-      this.fft.transform(bufRe, bufIm, true);
-
-      const start = this.frameStart(f);
-      for (let n = 0; n < frameSize; n++) {
-        const i = start + n;
-        if (i < 0 || i >= length) continue;
-        out[i] += bufRe[n] * window[n];
-        weight[i] += window[n] * window[n];
-      }
+  inverseAdd(re: Float64Array, im: Float64Array, frame: number, out: Float32Array): void {
+    this.fft.transform(re, im, true);
+    const start = this.frameStart(frame);
+    const length = out.length;
+    for (let n = 0; n < this.frameSize; n++) {
+      const i = start + n;
+      // The imaginary part is rounding noise (the spectrum is symmetric), so
+      // only the real part is kept.
+      if (i >= 0 && i < length) out[i] += re[n] * this.synthesisWindow[n];
     }
-
-    for (let i = 0; i < length; i++) {
-      if (weight[i] > 1e-12) out[i] /= weight[i];
-    }
-    return out;
   }
 }

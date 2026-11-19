@@ -102,6 +102,7 @@ function spreadLinear(dz: number): number {
  * turns one frame's power spectrum into a per-bin masking threshold.
  */
 export class MaskingModel {
+  readonly sampleRate: number;
   readonly binCount: number;
   readonly bandCount: number;
   /** Bark position of each FFT bin's centre frequency. */
@@ -119,6 +120,7 @@ export class MaskingModel {
   constructor(sampleRate: number, frameSize: number) {
     const binCount = frameSize / 2 + 1;
     const binHz = sampleRate / frameSize;
+    this.sampleRate = sampleRate;
     this.binCount = binCount;
     this.binBark = new Float64Array(binCount);
     this.binsPerCriticalBand = new Float64Array(binCount);

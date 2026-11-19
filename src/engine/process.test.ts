@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { processChannels } from './process';
+import { ChunkedProcessor, processChannels } from './process';
 import { add, sine, toneLevelDb } from './test-signals';
 
 const SR = 44100;
@@ -81,5 +81,37 @@ describe('processChannels', () => {
     for (let i = 0; i < left.length; i += 97) {
       expect(result.processed[0][i] + result.removed[0][i]).toBeCloseTo(left[i], 6);
     }
+  });
+
+  it('gives identical output whether run in one go or in small chunks', () => {
+    const x = add(noise(SR * 2, 0.1, 5), sine(1000, -10, SR, 2), sine(1100, -50, SR, 2));
+    const whole = processChannels([x], SR, { offsetDb: 3 });
+    const chunked = new ChunkedProcessor([x], SR, { offsetDb: 3 });
+    while (!chunked.done) chunked.run(7);
+    const parts = chunked.result();
+    expect(parts.processed[0]).toEqual(whole.processed[0]);
+    expect(parts.percentRemoved).toBe(whole.percentRemoved);
+  });
+
+  it('reports masked components, per-frame stats and a Masking Map', () => {
+    const x = add(sine(1000, -10, SR, 2), sine(1100, -50, SR, 2));
+    const result = processChannels([x], SR, { offsetDb: 0, collectMap: true, keepRemoved: false });
+    expect(result.removed).toHaveLength(0);
+    expect(result.maskedPercent).toBeGreaterThan(0);
+    expect(result.maskedPercent).toBeLessThanOrEqual(100);
+    expect(result.frames.removedEnergy.length).toBe(result.frames.maskedBins.length);
+    expect(result.frames.frameSeconds).toBeCloseTo(1024 / SR, 9);
+    const map = result.map;
+    expect(map).not.toBeNull();
+    if (!map) return;
+    expect(map.levelDb.length).toBe(map.columns * map.rows);
+    expect(map.columns * map.columnSeconds).toBeGreaterThanOrEqual(2);
+    // The loudest cell should sit in the row containing the 1 kHz tone.
+    let loudest = 0;
+    for (let i = 1; i < map.levelDb.length; i++) if (map.levelDb[i] > map.levelDb[loudest]) loudest = i;
+    const rowHz = map.minHz * Math.pow(map.maxHz / map.minHz, ((loudest % map.rows) + 0.5) / map.rows);
+    expect(rowHz).toBeGreaterThan(900);
+    expect(rowHz).toBeLessThan(1150);
+    expect(map.maskedShare.every((v) => v >= 0 && v <= 1)).toBe(true);
   });
 });

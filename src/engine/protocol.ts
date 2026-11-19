@@ -4,8 +4,9 @@
  * Every request carries an id that its response echoes, so the page can match
  * answers to questions even if several are in flight. Audio travels as
  * Float32Array channels whose buffers are transferred (moved, not copied),
- * which keeps sending 10 s of stereo audio essentially free.
+ * which keeps sending audio essentially free.
  */
+import type { FrameStats, MaskingMapData } from './process';
 
 export interface ProcessRequest {
   type: 'process';
@@ -15,7 +16,22 @@ export interface ProcessRequest {
   channels: Float32Array[];
 }
 
-export type EngineRequest = ProcessRequest;
+/** Whole-song analysis: processed audio plus the Masking Map and per-frame stats.
+ *  Runs in chunks and reports progress; can be cancelled between chunks. */
+export interface AnalyzeRequest {
+  type: 'analyze';
+  id: number;
+  sampleRate: number;
+  offsetDb: number;
+  channels: Float32Array[];
+}
+
+export interface CancelRequest {
+  type: 'cancel';
+  id: number;
+}
+
+export type EngineRequest = ProcessRequest | AnalyzeRequest | CancelRequest;
 
 export interface LoudnessInfo {
   originalLufs: number;
@@ -40,13 +56,41 @@ export interface ProcessResponse {
   elapsedMs: number;
 }
 
+export interface ProgressResponse {
+  type: 'progress';
+  id: number;
+  /** 0 to 1. */
+  fraction: number;
+}
+
+export interface AnalyzeResponse {
+  type: 'analyzed';
+  id: number;
+  /** Already loudness-matched to the original. The removed signal is not sent:
+   *  the player rebuilds it as original minus processed, saving a song-length buffer. */
+  processed: Float32Array[];
+  percentRemoved: number;
+  maskedPercent: number;
+  /** Peak of original minus processed (before matching), for the boost limit. */
+  removedPeak: number;
+  loudness: LoudnessInfo;
+  map: MaskingMapData;
+  frames: FrameStats;
+  elapsedMs: number;
+}
+
+export interface CancelledResponse {
+  type: 'cancelled';
+  id: number;
+}
+
 export interface ErrorResponse {
   type: 'error';
   id: number;
   message: string;
 }
 
-export type EngineResponse = ProcessResponse | ErrorResponse;
+export type EngineResponse = ProcessResponse | AnalyzeResponse | ProgressResponse | CancelledResponse | ErrorResponse;
 
 /** The underlying buffers of a set of channels, for the transfer list. */
 export function transferablesOf(channels: readonly Float32Array[]): ArrayBuffer[] {
