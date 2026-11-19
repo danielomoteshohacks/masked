@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    // ES2022 gives us modern syntax and typed arrays without polyfills;
+    // every browser with a usable Web Audio API already supports it.
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+
+    // Vite does the actual transpiling; tsc is only used as a type checker.
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+
+    // Strict mode matters for DSP code: it forces us to handle
+    // possibly-undefined array reads, which is where off-by-one bugs hide.
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src", "vite.config.ts"]
+}

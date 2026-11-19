@@ -1,0 +1,54 @@
+name: Build and deploy
+
+# Every push and pull request gets type-checked, tested and built, so problems
+# show up before they reach main. Only main is actually published.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Minimum rights: read the code, and (deploy job only) write to Pages.
+permissions:
+  contents: read
+
+# If two pushes land close together, finish the deploy already in progress
+# instead of cancelling it halfway and leaving Pages half-updated.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` installs exactly what package-lock.json lists, so CI builds
+      # with the same dependency versions as a local machine.
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    # Branches and pull requests stop after the build; only main goes live.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

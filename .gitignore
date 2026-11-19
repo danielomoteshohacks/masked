@@ -1,0 +1,16 @@
+# Dependencies and build output are regenerated from package-lock.json.
+node_modules/
+dist/
+coverage/
+*.local
+
+# Editor and OS clutter.
+.DS_Store
+.vscode/
+.idea/
+
+# Local tooling files that stay out of the repository.
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.mcp.json
