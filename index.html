@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Masked measures how much hidden detail you can hear inside your own music."
+    />
+    <title>Masked</title>
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <h1>Masked</h1>
+        <p class="tagline">How much of the hidden detail in your music can you actually hear?</p>
+      </header>
+
+      <section>
+        <p>
+          Loud sounds in music hide quieter sounds close to them in pitch and time. This
+          is called masking. Audio formats like MP3 and AAC use a model of an
+          "average" listener to decide which hidden parts can be deleted without anyone
+          noticing.
+        </p>
+        <p>
+          Masked will run that kind of model on a song you choose. It removes the parts
+          the model says are inaudible, then uses a blind A/B/X listening test to find
+          out whether your ears are more or less sensitive than the model assumes.
+        </p>
+      </section>
+
+      <!-- Filled in by src/main.ts once we know what the browser supports. -->
+      <section id="status" class="status" aria-live="polite"></section>
+
+      <aside class="disclaimer" role="note">
+        <strong>This is not a medical hearing test.</strong> It measures how you hear
+        one specific kind of audio processing, on your own equipment, in your own room.
+        It cannot diagnose hearing loss. If you have concerns about your hearing, see an
+        audiologist.
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
