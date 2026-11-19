@@ -30,8 +30,47 @@
         </p>
       </section>
 
-      <!-- Filled in by src/main.ts once we know what the browser supports. -->
-      <section id="status" class="status" aria-live="polite"></section>
+      <section id="loader" class="loader">
+        <label class="button primary">
+          Choose a song
+          <input id="file-input" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg" hidden />
+        </label>
+        <button id="demo-button" class="button" type="button" hidden>Use the demo track</button>
+        <p class="hint">or drop an audio file anywhere on this page (WAV, MP3, M4A)</p>
+      </section>
+
+      <!-- Status messages: errors, progress, results. Read out by screen readers. -->
+      <p id="status" class="status" aria-live="polite"></p>
+
+      <section id="editor" class="editor" hidden>
+        <p id="file-name" class="file-name"></p>
+        <canvas
+          id="waveform"
+          class="waveform"
+          tabindex="0"
+          role="slider"
+          aria-label="Test section start, in seconds. Drag, tap, or use the arrow keys."
+          aria-valuemin="0"
+        ></canvas>
+        <p id="region-label" class="hint"></p>
+
+        <!-- Temporary test controls for Phase 3; the ABX quiz replaces these later. -->
+        <div class="engine-controls">
+          <label for="offset" class="offset-label">
+            Offset from the standard model: <output id="offset-value">0 dB</output>
+          </label>
+          <input id="offset" type="range" min="-20" max="20" step="1" value="0" />
+          <p class="hint">Negative removes less, positive removes more.</p>
+          <button id="process-button" class="button primary" type="button">Process</button>
+          <p id="removed-readout" class="readout"></p>
+        </div>
+
+        <div class="playback" role="group" aria-label="Playback">
+          <button class="button" type="button" data-play="original">Original</button>
+          <button class="button" type="button" data-play="processed" disabled>Processed</button>
+          <button class="button" type="button" data-play="removed" disabled>Removed only</button>
+        </div>
+      </section>
 
       <aside class="disclaimer" role="note">
         <strong>This is not a medical hearing test.</strong> It measures how you hear

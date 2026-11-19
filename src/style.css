@@ -1,29 +1,30 @@
-/* Colors live in variables so the dark theme only has to redefine them. */
+/* Dark only for now: a listening app is often used in a dim room, and a single
+   palette keeps the temporary UI simple. Colors stay in variables so a light
+   theme can be added later by redefining them. */
 :root {
-  --bg: #fafaf7;
-  --fg: #1c1c1a;
-  --muted: #5c5c57;
-  --accent: #2f5d8a;
-  --ok: #2e6b3a;
-  --error: #a3322b;
-  --panel: #efeee8;
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #161615;
-    --fg: #e8e7e1;
-    --muted: #a3a29b;
-    --accent: #8ab4dc;
-    --ok: #7fc28d;
-    --error: #e58a83;
-    --panel: #232321;
-  }
+  --bg: #161615;
+  --fg: #e8e7e1;
+  --muted: #a3a29b;
+  --accent: #8ab4dc;
+  --ok: #7fc28d;
+  --error: #e58a83;
+  --panel: #232321;
+  --border: #3a3a37;
+  /* Read by the waveform canvas, so it matches the page. */
+  --wave: #e8e7e1;
+  --wave-dim: #5a5a55;
+  --region: rgba(138, 180, 220, 0.16);
+  color-scheme: dark;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* Class rules like `.button { display: inline-block }` beat the browser's
+   built-in rule for the hidden attribute; this restores it. */
+[hidden] {
+  display: none !important;
 }
 
 body {
@@ -73,4 +74,117 @@ h1 {
   background: var(--panel);
   border-left: 4px solid var(--accent);
   border-radius: 4px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+}
+
+.loader {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 1.5rem;
+}
+
+.loader .hint {
+  flex-basis: 100%;
+}
+
+/* Highlight the whole page while a file is dragged over it. */
+body.dragging .page {
+  outline: 2px dashed var(--accent);
+  outline-offset: -8px;
+}
+
+.button {
+  display: inline-block;
+  padding: 0.6rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  /* Buttons are tapped repeatedly while comparing versions; stop a double
+     tap from zooming the page on phones. */
+  touch-action: manipulation;
+}
+
+.button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+/* The mode that is currently playing. */
+.button[aria-pressed='true'] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.editor {
+  margin-top: 1rem;
+}
+
+.file-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.waveform {
+  display: block;
+  width: 100%;
+  height: 120px;
+  background: var(--panel);
+  border-radius: 6px;
+  cursor: grab;
+  /* Without this, dragging the region on a phone scrolls the page instead. */
+  touch-action: none;
+}
+
+.waveform:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.engine-controls {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.engine-controls input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.readout {
+  margin: 0.75rem 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.playback {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.playback .button {
+  flex: 1 1 8rem;
 }

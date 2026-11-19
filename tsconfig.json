@@ -13,10 +13,11 @@
     "isolatedModules": true,
     "skipLibCheck": true,
 
-    // Strict mode matters for DSP code: it forces us to handle
-    // possibly-undefined array reads, which is where off-by-one bugs hide.
+    // Strict mode catches null/undefined mistakes. noUncheckedIndexedAccess is
+    // deliberately off: it would make every typed-array read in the DSP inner
+    // loops `number | undefined`, burying the math under `!` assertions. Array
+    // bounds in the engine are covered by unit tests instead.
     "strict": true,
-    "noUncheckedIndexedAccess": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
