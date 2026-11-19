@@ -188,3 +188,87 @@ body.dragging .page {
 .playback .button {
   flex: 1 1 8rem;
 }
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.row .button {
+  flex: 1 1 7rem;
+}
+
+.toggle {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.75rem;
+  font-size: 0.95rem;
+}
+
+.toggle input {
+  accent-color: var(--accent);
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.start-test {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.step h2 {
+  font-size: 1.3rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+/* Big, evenly sized targets: these are pressed dozens of times per test. */
+.abx .button,
+.answers .button {
+  padding: 0.9rem 0.5rem;
+  font-size: 1.1rem;
+}
+
+.headline {
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem;
+}
+
+.stats dt {
+  color: var(--muted);
+}
+
+.stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart {
+  margin-top: 1.25rem;
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.warning {
+  color: var(--error);
+}
+
+/* Shortcut hints only make sense with a keyboard. */
+@media (pointer: coarse) {
+  .keys {
+    display: none;
+  }
+}

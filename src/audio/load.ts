@@ -41,6 +41,26 @@ export function sliceChannels(buffer: AudioBuffer, startSample: number, length: 
   return channels;
 }
 
+/** Length of the fade at each end of the test region. */
+export const EDGE_FADE_SECONDS = 0.02;
+
+/**
+ * Fades the region in and out (raised cosine), in place. The region loops,
+ * and jumping from its last sample straight back to its first would click.
+ * The fades are applied before processing, so every version gets the identical
+ * dip at the loop point and it cannot give any version away.
+ */
+export function applyEdgeFades(channels: readonly Float32Array[], sampleRate: number): void {
+  for (const channel of channels) {
+    const n = Math.min(Math.round(EDGE_FADE_SECONDS * sampleRate), Math.floor(channel.length / 2));
+    for (let i = 0; i < n; i++) {
+      const g = 0.5 - 0.5 * Math.cos((Math.PI * i) / n);
+      channel[i] *= g;
+      channel[channel.length - 1 - i] *= g;
+    }
+  }
+}
+
 export function channelsToBuffer(context: AudioContext, channels: readonly Float32Array[], sampleRate: number): AudioBuffer {
   const length = channels[0]?.length ?? 0;
   const buffer = context.createBuffer(Math.max(1, channels.length), Math.max(1, length), sampleRate);

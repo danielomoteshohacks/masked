@@ -1,9 +1,18 @@
 import './style.css';
-import { channelsToBuffer, createAudioContext, decodeAudio, looksLikeAudio, sliceChannels } from './audio/load';
-import { RegionPlayer } from './audio/player';
+import {
+  applyEdgeFades,
+  channelsToBuffer,
+  createAudioContext,
+  decodeAudio,
+  looksLikeAudio,
+  sliceChannels,
+} from './audio/load';
+import { SyncedPlayer } from './audio/synced-player';
 import { DEMO_TRACK, demoTrackUrl } from './demo';
 import { EngineClient } from './engine/client';
+import { PEAK_CEILING, samplePeak } from './engine/loudness';
 import { mixToMono } from './engine/mono';
+import { TestFlow } from './ui/test-flow';
 import { WaveformView } from './ui/waveform';
 
 // Safari before 14.1 only exposed the prefixed constructor. Checking both lets
@@ -35,6 +44,13 @@ const offsetValue = $<HTMLOutputElement>('#offset-value');
 const processButton = $<HTMLButtonElement>('#process-button');
 const removedReadout = $<HTMLElement>('#removed-readout');
 const playButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-play]'));
+const boostInput = $<HTMLInputElement>('#boost');
+const loader = $<HTMLElement>('#loader');
+const startTestButton = $<HTMLButtonElement>('#start-test');
+
+/** "+20 dB" boost for the removed-only version. It is exploration only:
+ *  the quiz never plays the removed audio at all. */
+const REMOVED_BOOST = 10;
 
 function setStatus(message: string, state: 'ok' | 'error' | 'info' = 'info'): void {
   statusEl.textContent = message;
@@ -54,17 +70,23 @@ interface ProcessedRegion {
   offsetDb: number;
   processed: AudioBuffer;
   removed: AudioBuffer;
+  /** Shared playback gain that keeps every version below the peak ceiling. */
+  headroom: number;
+  /** Boost actually used: up to +20 dB, less if that would clip. */
+  removedBoost: number;
 }
 
 // The audio context is created on the first user action, not at page load:
 // browsers (iOS Safari especially) keep audio locked until a gesture.
 let audioContext: AudioContext | null = null;
-let player: RegionPlayer | null = null;
+let player: SyncedPlayer | null = null;
 let engine: EngineClient | null = null;
 let song: LoadedSong | null = null;
 let processedRegion: ProcessedRegion | null = null;
-let playingMode: PlayMode | null = null;
 let loadToken = 0;
+let testFlow: TestFlow | null = null;
+/** Which region/result the player currently holds, so it is only reloaded when that changes. */
+let loadedVersionsKey: string | null = null;
 
 const waveform = new WaveformView($<HTMLCanvasElement>('#waveform'), () => {
   // Moving the region makes any earlier result describe the wrong audio.
@@ -73,13 +95,10 @@ const waveform = new WaveformView($<HTMLCanvasElement>('#waveform'), () => {
   updateRegionLabel();
 });
 
-function ensureAudio(): { context: AudioContext; player: RegionPlayer } {
+function ensureAudio(): { context: AudioContext; player: SyncedPlayer } {
   if (!audioContext || !player) {
     audioContext = createAudioContext();
-    player = new RegionPlayer(audioContext, () => {
-      playingMode = null;
-      updatePlayButtons();
-    });
+    player = new SyncedPlayer(audioContext, updatePlayButtons);
   }
   return { context: audioContext, player };
 }
@@ -105,9 +124,19 @@ function regionLengthSamples(): number {
   return song ? Math.round(waveform.regionDuration * song.buffer.sampleRate) : 0;
 }
 
+/** The selected region with its loop-edge fades, as fresh copies. */
+function regionChannels(): Float32Array[] {
+  if (!song) return [];
+  const channels = sliceChannels(song.buffer, regionStartSample(), regionLengthSamples());
+  applyEdgeFades(channels, song.buffer.sampleRate);
+  return channels;
+}
+
 function invalidateProcessed(): void {
+  // The player's versions describe the old settings; it reloads on next play.
+  player?.stop();
+  loadedVersionsKey = null;
   if (!processedRegion) return;
-  if (playingMode === 'processed' || playingMode === 'removed') player?.stop();
   processedRegion = null;
   removedReadout.textContent = 'Settings changed. Press Process again.';
   updatePlayButtons();
@@ -117,7 +146,7 @@ function updatePlayButtons(): void {
   for (const button of playButtons) {
     const mode = button.dataset.play as PlayMode;
     button.disabled = mode !== 'original' && !processedRegion;
-    button.setAttribute('aria-pressed', String(mode === playingMode));
+    button.setAttribute('aria-pressed', String(mode === player?.active));
   }
 }
 
@@ -133,6 +162,7 @@ async function loadSong(name: string, readData: () => Promise<ArrayBuffer>): Pro
     return;
   }
   player?.stop();
+  loadedVersionsKey = null;
   setStatus(`Decoding ${name}...`);
   try {
     const buffer = await decodeAudio(context, await readData());
@@ -154,6 +184,10 @@ async function loadSong(name: string, readData: () => Promise<ArrayBuffer>): Pro
 }
 
 function loadFile(file: File): void {
+  if (testFlow?.isActive) {
+    setStatus('Finish or exit the test before loading another song.', 'error');
+    return;
+  }
   if (!looksLikeAudio(file)) {
     setStatus(`${file.name} does not look like an audio file.`, 'error');
     return;
@@ -223,22 +257,26 @@ processButton.addEventListener('click', async () => {
   processButton.disabled = true;
   removedReadout.textContent = 'Processing...';
   try {
-    const result = await engine.process(
-      sliceChannels(buffer, startSample, regionLengthSamples()),
-      buffer.sampleRate,
-      offsetDb,
-    );
+    const result = await engine.process(regionChannels(), buffer.sampleRate, offsetDb);
     // The user may have moved the region or slider while we waited.
     if (startSample !== regionStartSample() || offsetDb !== Number(offsetInput.value)) return;
+    const { headroom } = result.loudness;
+    const removedPeak = samplePeak(result.removed) * headroom;
     processedRegion = {
       startSample,
       offsetDb,
       processed: channelsToBuffer(audioContext, result.processed, buffer.sampleRate),
       removed: channelsToBuffer(audioContext, result.removed, buffer.sampleRate),
+      headroom,
+      removedBoost: removedPeak > 0 ? Math.min(REMOVED_BOOST, PEAK_CEILING / removedPeak) : REMOVED_BOOST,
     };
+    player?.stop();
+    loadedVersionsKey = null;
+    const { originalLufs, gainDb } = result.loudness;
     removedReadout.textContent =
-      `Removed ${result.percentRemoved.toFixed(2)}% of the energy in this section ` +
-      `(${Math.round(result.elapsedMs)} ms).`;
+      `Removed ${result.percentRemoved.toFixed(2)}% of the energy in this section. ` +
+      `Loudness matched: original ${originalLufs.toFixed(1)} LUFS, processed adjusted by ` +
+      `${gainDb >= 0 ? '+' : ''}${gainDb.toFixed(2)} dB (${Math.round(result.elapsedMs)} ms).`;
     updatePlayButtons();
   } catch (error) {
     removedReadout.textContent = '';
@@ -248,34 +286,46 @@ processButton.addEventListener('click', async () => {
   }
 });
 
-function bufferFor(mode: PlayMode, context: AudioContext): AudioBuffer | null {
-  if (!song) return null;
-  if (mode === 'original') {
-    return channelsToBuffer(
-      context,
-      sliceChannels(song.buffer, regionStartSample(), regionLengthSamples()),
-      song.buffer.sampleRate,
-    );
-  }
-  if (!processedRegion) return null;
-  return mode === 'processed' ? processedRegion.processed : processedRegion.removed;
+function removedLevel(): number {
+  return boostInput.checked && processedRegion ? processedRegion.removedBoost : 1;
 }
+
+/** Loads every available version onto the player's shared timeline, if not already loaded. */
+function ensureVersionsLoaded(context: AudioContext, activePlayer: SyncedPlayer): void {
+  if (!song) return;
+  const key = `${regionStartSample()}:${processedRegion ? processedRegion.offsetDb : 'none'}`;
+  if (key === loadedVersionsKey) return;
+  const channels = regionChannels();
+  const original = channelsToBuffer(context, channels, song.buffer.sampleRate);
+  if (processedRegion) {
+    activePlayer.load(
+      { original, processed: processedRegion.processed, removed: processedRegion.removed },
+      processedRegion.headroom,
+      { removed: removedLevel() },
+    );
+  } else {
+    activePlayer.load({ original }, Math.min(1, PEAK_CEILING / Math.max(samplePeak(channels), 1e-9)));
+  }
+  loadedVersionsKey = key;
+}
+
+boostInput.addEventListener('change', () => player?.setLevel('removed', removedLevel()));
 
 for (const button of playButtons) {
   button.addEventListener('click', () => {
     const mode = button.dataset.play as PlayMode;
     const { context, player: activePlayer } = ensureAudio();
     // Pressing the button of what is already playing stops it.
-    if (playingMode === mode) {
+    if (activePlayer.active === mode) {
       activePlayer.stop();
       return;
     }
-    const buffer = bufferFor(mode, context);
-    if (!buffer) return;
-    activePlayer.play(buffer);
-    playingMode = mode;
-    updatePlayButtons();
-    animatePlayhead();
+    if (mode !== 'original' && !processedRegion) return;
+    const wasPlaying = activePlayer.active !== null;
+    ensureVersionsLoaded(context, activePlayer);
+    // If already playing, this crossfades at the current position.
+    activePlayer.play(mode);
+    if (!wasPlaying) animatePlayhead();
   });
 }
 
@@ -284,6 +334,28 @@ function animatePlayhead(): void {
   waveform.setPlayhead(position === null ? null : waveform.regionStart + position);
   if (position !== null) requestAnimationFrame(animatePlayhead);
 }
+
+startTestButton.addEventListener('click', () => {
+  if (!song) return;
+  const { context, player: activePlayer } = ensureAudio();
+  activePlayer.stop();
+  engine ??= new EngineClient();
+  testFlow ??= new TestFlow(context, engine, () => {
+    loader.hidden = false;
+    editor.hidden = false;
+    setStatus('Test closed. You can explore, or start another test.');
+  });
+  loader.hidden = true;
+  editor.hidden = true;
+  setStatus('');
+  testFlow.begin({
+    songName: song.name,
+    startSeconds: waveform.regionStart,
+    durationSeconds: waveform.regionDuration,
+    sampleRate: song.buffer.sampleRate,
+    channels: regionChannels(),
+  });
+});
 
 if (hasWebAudio(window as MaybeAudioGlobals)) {
   setStatus('Choose a song to begin. It stays on your device; nothing is uploaded.');

@@ -70,6 +70,82 @@
           <button class="button" type="button" data-play="processed" disabled>Processed</button>
           <button class="button" type="button" data-play="removed" disabled>Removed only</button>
         </div>
+        <p class="hint">
+          Versions switch instantly at the same point in the music. Press the playing one again to stop.
+        </p>
+        <label class="toggle">
+          <input id="boost" type="checkbox" />
+          +20 dB boost on "Removed only" (for exploring; never used in the test)
+        </label>
+
+        <div class="start-test">
+          <button id="start-test" class="button primary" type="button">Start the listening test</button>
+          <p class="hint">About 5 to 10 minutes. Uses the section selected above. Headphones required.</p>
+        </div>
+      </section>
+
+      <section id="test" class="test" hidden>
+        <button id="test-exit" class="button" type="button">Exit the test</button>
+        <div id="step-volume" class="step" hidden>
+          <h2>Step 1 of 3: set a comfortable volume</h2>
+          <p>
+            Put on your headphones and play the reference clip (your selected section). Set your device
+            volume so it is comfortably loud, as you would normally listen. Keep that volume for the whole
+            test.
+          </p>
+          <div class="row">
+            <button id="volume-play" class="button" type="button" aria-pressed="false">Play reference</button>
+            <button id="volume-done" class="button primary" type="button">The volume is set</button>
+          </div>
+        </div>
+
+        <div id="step-headphones" class="step" hidden>
+          <h2>Step 2 of 3: headphone check</h2>
+          <p>
+            You will hear three low tones. Pick the one that is <strong>quietest</strong>. Each set plays
+            only once, so listen closely.
+          </p>
+          <p id="hp-progress" class="hint"></p>
+          <button id="hp-play" class="button primary" type="button">Play the tones</button>
+          <div class="row answers" role="group" aria-label="Which tone was quietest?">
+            <button class="button" type="button" data-hp="0" disabled>First</button>
+            <button class="button" type="button" data-hp="1" disabled>Second</button>
+            <button class="button" type="button" data-hp="2" disabled>Third</button>
+          </div>
+          <p id="hp-result" class="readout" aria-live="polite"></p>
+          <button id="hp-continue" class="button primary" type="button" hidden>Continue to the test</button>
+        </div>
+
+        <div id="step-quiz" class="step" hidden>
+          <h2>Step 3 of 3: the listening test</h2>
+          <p>
+            A and B are two versions of your section. X is one of them. Switch between them as often as
+            you like, then decide which one X is.
+          </p>
+          <p id="quiz-progress" class="hint"></p>
+          <div class="row abx" role="group" aria-label="Listen">
+            <button class="button" type="button" data-abx="A" disabled>A</button>
+            <button class="button" type="button" data-abx="B" disabled>B</button>
+            <button class="button" type="button" data-abx="X" disabled>X</button>
+          </div>
+          <div class="row answers" role="group" aria-label="Your answer">
+            <button id="answer-a" class="button primary" type="button" disabled>X is A</button>
+            <button id="answer-b" class="button primary" type="button" disabled>X is B</button>
+          </div>
+          <p id="quiz-status" class="hint" aria-live="polite"></p>
+          <p class="hint keys">Keyboard: A, B, X to switch. 1 = "X is A", 2 = "X is B".</p>
+        </div>
+
+        <div id="step-results" class="step" hidden>
+          <h2>Your result</h2>
+          <p id="result-headline" class="headline"></p>
+          <dl id="result-stats" class="stats"></dl>
+          <div id="result-chart" class="chart" role="img" aria-label="Offset used on each trial"></div>
+          <div class="row">
+            <button id="export-json" class="button" type="button">Download all trials (JSON)</button>
+            <button id="results-back" class="button primary" type="button">Back to exploring</button>
+          </div>
+        </div>
       </section>
 
       <aside class="disclaimer" role="note">

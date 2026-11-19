@@ -17,12 +17,25 @@ export interface ProcessRequest {
 
 export type EngineRequest = ProcessRequest;
 
+export interface LoudnessInfo {
+  originalLufs: number;
+  /** Processed loudness before matching. */
+  processedLufs: number;
+  /** Gain already applied to `processed`, in dB. */
+  gainDb: number;
+  /** Linear gain (at most 1) to apply to every version at playback so none clips. */
+  headroom: number;
+}
+
 export interface ProcessResponse {
   type: 'processed';
   id: number;
+  /** Already loudness-matched to the original. */
   processed: Float32Array[];
+  /** Original minus processed, before loudness matching, so it is exactly what the model took out. */
   removed: Float32Array[];
   percentRemoved: number;
+  loudness: LoudnessInfo;
   /** Time spent inside the worker, for spotting performance problems on phones. */
   elapsedMs: number;
 }

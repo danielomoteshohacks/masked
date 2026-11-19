@@ -3,6 +3,7 @@
  * for a noticeable moment on a phone, so it runs on a separate thread and the
  * UI stays responsive.
  */
+import { applyGain, matchLoudness } from './loudness';
 import { processChannels } from './process';
 import { transferablesOf, type EngineRequest, type EngineResponse } from './protocol';
 
@@ -21,6 +22,10 @@ scope.addEventListener('message', (event) => {
     const result = processChannels(request.channels, request.sampleRate, {
       offsetDb: request.offsetDb,
     });
+    // Loudness matching happens here, next to the processing, so every
+    // version the page receives is already fair to compare.
+    const match = matchLoudness(request.channels, result.processed, request.sampleRate);
+    applyGain(result.processed, match.gain);
     scope.postMessage(
       {
         type: 'processed',
@@ -28,6 +33,12 @@ scope.addEventListener('message', (event) => {
         processed: result.processed,
         removed: result.removed,
         percentRemoved: result.percentRemoved,
+        loudness: {
+          originalLufs: match.originalLufs,
+          processedLufs: match.processedLufs,
+          gainDb: 20 * Math.log10(match.gain),
+          headroom: match.headroom,
+        },
         elapsedMs: performance.now() - started,
       },
       { transfer: [...transferablesOf(result.processed), ...transferablesOf(result.removed)] },
