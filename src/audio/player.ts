@@ -14,6 +14,8 @@ export class RegionPlayer {
   constructor(
     private readonly context: AudioContext,
     private readonly onEnded: () => void,
+    /** Where the sound goes: the speakers, or an analyser in front of them. */
+    private readonly output: AudioNode = context.destination,
   ) {}
 
   get isPlaying(): boolean {
@@ -36,7 +38,7 @@ export class RegionPlayer {
     const gain = this.context.createGain();
     gain.gain.setValueAtTime(0, now);
     gain.gain.linearRampToValueAtTime(1, now + FADE_SECONDS);
-    gain.connect(this.context.destination);
+    gain.connect(this.output);
 
     const source = this.context.createBufferSource();
     source.buffer = buffer;

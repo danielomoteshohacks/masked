@@ -1,4 +1,4 @@
-/** Scoring for ABX answers: percent correct, chance probability, and d'. */
+/** Scoring for odd-one-out answers: percent correct, chance probability, and d'. */
 
 export interface QuizScore {
   total: number;
@@ -6,7 +6,7 @@ export interface QuizScore {
   percentCorrect: number;
   /** One-sided chance of scoring at least this well by pure guessing. */
   pValue: number;
-  /** Sensitivity estimate (d') for ABX under the differencing model. */
+  /** Sensitivity estimate (d') under the odd-one-out (triangle) model. */
   dPrime: number;
 }
 
@@ -36,34 +36,55 @@ export function normalCdf(x: number): number {
   return x >= 0 ? 0.5 * (1 + erf) : 0.5 * (1 - erf);
 }
 
-/**
- * Proportion correct in ABX for a given d', under the differencing model
- * (Macmillan and Creelman, Detection Theory, ch. 9). The listener is right if
- * they correctly judge both "is X different from A?" and "is X different from
- * B?", or get both judgements wrong.
- */
-export function abxProportionCorrect(dPrime: number): number {
-  const a = normalCdf(dPrime / Math.SQRT2);
-  const b = normalCdf(dPrime / 2);
-  return a * b + (1 - a) * (1 - b);
+/** Guessing rate in the odd-one-out test: one right answer out of three. */
+export const ODDITY_CHANCE = 1 / 3;
+
+function normalPdf(x: number): number {
+  return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
 }
 
 /**
- * Inverts abxProportionCorrect by bisection (it rises steadily, so bisection
+ * Proportion correct in the odd-one-out (oddity, "triangle") task for a given
+ * d', where the odd version is the one heard as furthest from the other two.
+ * This is the standard triangle-test model (Frijters 1979; Ennis 1993):
+ *
+ *   Pc = 2 * integral over z >= 0 of
+ *        [ Phi(-z*sqrt(3) + d*sqrt(2/3)) + Phi(-z*sqrt(3) - d*sqrt(2/3)) ] * phi(z) dz
+ *
+ * evaluated with Simpson's rule. It gives exactly 1/3 at d' = 0 (guessing)
+ * and approaches 1 as d' grows.
+ */
+export function oddityProportionCorrect(dPrime: number): number {
+  const a = Math.sqrt(3);
+  const b = dPrime * Math.sqrt(2 / 3);
+  const steps = 400; // even, for Simpson's rule
+  const upper = 8; // phi(8) is about 5e-15: the rest of the integral is negligible
+  const h = upper / steps;
+  let sum = 0;
+  for (let i = 0; i <= steps; i++) {
+    const z = i * h;
+    const f = (normalCdf(-a * z + b) + normalCdf(-a * z - b)) * normalPdf(z);
+    sum += f * (i === 0 || i === steps ? 1 : i % 2 === 1 ? 4 : 2);
+  }
+  return Math.min(1, 2 * (sum * h) / 3);
+}
+
+/**
+ * Inverts oddityProportionCorrect by bisection (it rises steadily, so bisection
  * always converges). A perfect score would give infinite d', so it is
  * replaced by 1 - 1/(2n), the usual correction for a finite number of trials.
  */
-export function abxDPrime(correct: number, total: number): number {
+export function oddityDPrime(correct: number, total: number): number {
   if (total <= 0) return 0;
   let pc = correct / total;
   if (pc >= 1) pc = 1 - 1 / (2 * total);
   // At or below chance there is no evidence of any sensitivity.
-  if (pc <= 0.5) return 0;
+  if (pc <= ODDITY_CHANCE) return 0;
   let lo = 0;
   let hi = 10;
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 50; i++) {
     const mid = (lo + hi) / 2;
-    if (abxProportionCorrect(mid) < pc) lo = mid;
+    if (oddityProportionCorrect(mid) < pc) lo = mid;
     else hi = mid;
   }
   return (lo + hi) / 2;
@@ -76,8 +97,8 @@ export function scoreTrials(trials: readonly { correct: boolean }[]): QuizScore 
     total,
     correct,
     percentCorrect: total > 0 ? (100 * correct) / total : 0,
-    pValue: binomialPValue(correct, total),
-    dPrime: abxDPrime(correct, total),
+    pValue: binomialPValue(correct, total, ODDITY_CHANCE),
+    dPrime: oddityDPrime(correct, total),
   };
 }
 

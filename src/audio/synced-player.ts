@@ -44,9 +44,14 @@ export class SyncedPlayer {
   private ramps = new Map<string, Ramp>();
   private activeKey: string | null = null;
 
+  /**
+   * `output` is where the mix goes: the speakers by default, or an analyser
+   * in front of them so the page can draw what is playing.
+   */
   constructor(
     private readonly context: AudioContext,
     private readonly onChange: () => void = () => {},
+    private readonly output: AudioNode = context.destination,
   ) {}
 
   /**
@@ -140,7 +145,7 @@ export class SyncedPlayer {
     master.gain.setValueAtTime(0, now);
     master.gain.setValueAtTime(0, when);
     master.gain.linearRampToValueAtTime(this.masterLevel, when + CROSSFADE_SECONDS);
-    master.connect(this.context.destination);
+    master.connect(this.output);
 
     const sources: AudioBufferSourceNode[] = [];
     const gains = new Map<string, GainNode>();

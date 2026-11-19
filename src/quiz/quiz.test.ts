@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { earScore, scoreSentence, takeaway, verdict } from './ear-score';
 import {
-  abxDPrime,
-  abxProportionCorrect,
   binomialPValue,
   interpretThreshold,
   normalCdf,
+  ODDITY_CHANCE,
+  oddityDPrime,
+  oddityProportionCorrect,
   scoreTrials,
 } from './scoring';
 import { DEFAULT_STAIRCASE, Staircase } from './staircase';
@@ -91,16 +93,19 @@ describe('Staircase', () => {
   });
 
   it('converges near the 70.7%-correct point of a simulated listener', () => {
-    // Simulated ABX listener: chance at low offsets, near-perfect at high
-    // ones, with p(correct) = 0.707 at about -1 dB.
+    // Simulated odd-one-out listener: chance (1/3) at low offsets, near-perfect
+    // at high ones. 2-down/1-up still settles where p(correct)^2 = 0.5,
+    // i.e. 70.7% correct, whatever the guessing rate.
     let seed = 12345;
     const random = () => {
       seed = (seed * 1664525 + 1013904223) >>> 0;
       return seed / 2 ** 32;
     };
     const slope = 3;
-    const pCorrect = (offset: number) => 0.5 + 0.5 / (1 + Math.exp(-offset / slope));
-    const target = slope * Math.log(0.414 / 0.586);
+    const pCorrect = (offset: number) => 1 / 3 + (2 / 3) / (1 + Math.exp(-offset / slope));
+    // Solve 1/3 + (2/3) * sigmoid(x / slope) = 0.7071 for x.
+    const s = (0.7071 - 1 / 3) / (2 / 3);
+    const target = slope * Math.log(s / (1 - s));
 
     const estimates: number[] = [];
     for (let run = 0; run < 300; run++) {
@@ -127,34 +132,78 @@ describe('scoring', () => {
     expect(normalCdf(-1)).toBeCloseTo(0.158655, 6);
   });
 
-  it('maps d-prime to ABX proportion correct and back', () => {
-    expect(abxProportionCorrect(0)).toBeCloseTo(0.5, 9);
+  it('uses the right guessing rate for odd-one-out p-values', () => {
+    // P(X >= 2 | n = 2, p = 1/3) = 1/9.
+    expect(binomialPValue(2, 2, ODDITY_CHANCE)).toBeCloseTo(1 / 9, 12);
+    // P(X >= 1 | n = 3, p = 1/3) = 1 - (2/3)^3 = 19/27.
+    expect(binomialPValue(1, 3, ODDITY_CHANCE)).toBeCloseTo(19 / 27, 12);
+  });
+
+  it('matches the triangle-test model: 1/3 at d-prime 0, about 0.418 at 1', () => {
+    expect(oddityProportionCorrect(0)).toBeCloseTo(1 / 3, 6);
+    // Published triangle-test tables (Ennis 1993) give Pc = 0.418 at d' = 1.
+    expect(oddityProportionCorrect(1)).toBeCloseTo(0.418, 3);
+    // The odd-one-out task is less efficient than a two-choice one: even
+    // d' = 6 is only about 98.6% correct, but it keeps rising towards 1.
+    expect(oddityProportionCorrect(6)).toBeGreaterThan(0.98);
+    expect(oddityProportionCorrect(10)).toBeGreaterThan(oddityProportionCorrect(6));
+  });
+
+  it('maps d-prime to proportion correct and back', () => {
     for (const d of [0.5, 1, 2, 3]) {
-      const pc = abxProportionCorrect(d);
+      const pc = oddityProportionCorrect(d);
       // A huge "experiment" at exactly that proportion recovers d'.
-      expect(abxDPrime(Math.round(pc * 1e6), 1e6)).toBeCloseTo(d, 2);
+      expect(oddityDPrime(Math.round(pc * 1e6), 1e6)).toBeCloseTo(d, 2);
     }
   });
 
   it('gives d-prime 0 at or below chance and a finite value for a perfect score', () => {
-    expect(abxDPrime(5, 10)).toBe(0);
-    expect(abxDPrime(3, 10)).toBe(0);
-    const perfect = abxDPrime(20, 20);
+    expect(oddityDPrime(3, 9)).toBe(0);
+    expect(oddityDPrime(2, 10)).toBe(0);
+    const perfect = oddityDPrime(20, 20);
     expect(Number.isFinite(perfect)).toBe(true);
-    expect(perfect).toBeGreaterThan(abxDPrime(19, 20));
+    expect(perfect).toBeGreaterThan(oddityDPrime(19, 20));
   });
 
-  it('summarises a set of trials', () => {
+  it('summarises a set of trials against a one-in-three guessing rate', () => {
     const trials = [true, true, true, false, true, true, true, true, false, true].map((correct) => ({ correct }));
     const score = scoreTrials(trials);
     expect(score.correct).toBe(8);
     expect(score.percentCorrect).toBe(80);
-    expect(score.pValue).toBeCloseTo(56 / 1024, 12);
+    expect(score.pValue).toBeCloseTo(binomialPValue(8, 10, 1 / 3), 12);
+    expect(score.pValue).toBeLessThan(0.01);
     expect(score.dPrime).toBeGreaterThan(0);
   });
 
   it('phrases the threshold from the listener’s side', () => {
     expect(interpretThreshold(-3.5)).toBe('You hear detail the standard model says is inaudible, by 3.5 dB.');
     expect(interpretThreshold(6)).toBe('The model is safe for your ears, with 6.0 dB to spare.');
+  });
+});
+
+describe('Ear Score', () => {
+  it('puts the standard listener at 50 and moves 2.5 points per dB', () => {
+    expect(earScore(0)).toBe(50);
+    expect(earScore(-4)).toBe(60);
+    expect(earScore(8)).toBe(30);
+  });
+
+  it('clamps to 0-100 across the whole staircase range', () => {
+    expect(earScore(-20)).toBe(100);
+    expect(earScore(-25)).toBe(100);
+    expect(earScore(20)).toBe(0);
+    expect(earScore(30)).toBe(0);
+  });
+
+  it('gives a verdict and plain advice for each band', () => {
+    expect(verdict(earScore(-6))).toBe('lossless');
+    expect(verdict(earScore(1))).toBe('edge');
+    expect(verdict(earScore(10))).toBe('standard');
+    expect(takeaway(80)).toBe('Lossless streaming is probably worth it for you.');
+    expect(takeaway(20)).toBe('Standard streaming quality is fine for your ears.');
+    for (const score of [0, 50, 100]) {
+      // No technical words in the main flow.
+      expect(`${scoreSentence(score)} ${takeaway(score)}`).not.toMatch(/model|LUFS|offset|mask|lossy|transparent/i);
+    }
   });
 });

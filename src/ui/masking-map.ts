@@ -21,8 +21,8 @@ function formatTime(seconds: number): string {
 
 /**
  * Full-song spectrogram: time left to right, frequency (log scale) bottom to
- * top. Brightness is level; colour shows what the model removes, neutral for
- * audible content and the accent colour for masked content. Tapping seeks.
+ * top. Brightness is level; colour shows what the model removes: lavender for
+ * audible content, gold for masked content. Tapping seeks.
  */
 export class MaskingMapView {
   private image: HTMLCanvasElement | null = null;
@@ -71,7 +71,7 @@ export class MaskingMapView {
   private renderImage(map: MaskingMapData): HTMLCanvasElement {
     const styles = getComputedStyle(this.canvas);
     const kept = parseHex(styles.getPropertyValue('--map-kept'), [223, 228, 234]);
-    const masked = parseHex(styles.getPropertyValue('--accent'), [255, 178, 56]);
+    const masked = parseHex(styles.getPropertyValue('--gold'), [255, 201, 77]);
 
     // Normalise to the loudest cell so every song uses the full brightness range.
     let maxDb = -Infinity;
@@ -136,9 +136,9 @@ export class MaskingMapView {
     if (!map || !this.image) return;
 
     const styles = getComputedStyle(this.canvas);
-    const muted = styles.getPropertyValue('--faint').trim() || '#5d636b';
-    const accent = styles.getPropertyValue('--accent').trim() || '#ffb238';
-    const fg = styles.getPropertyValue('--fg').trim() || '#ecebe6';
+    const muted = styles.getPropertyValue('--faint').trim() || '#7d74ad';
+    const accent = styles.getPropertyValue('--gold').trim() || '#ffc94d';
+    const fg = styles.getPropertyValue('--fg').trim() || '#f7f4ff';
     const plot = this.plotRect(width, height, dpr);
 
     ctx.imageSmoothingEnabled = true;
@@ -174,7 +174,7 @@ export class MaskingMapView {
       ctx.beginPath();
       ctx.arc(x, plot.y + 10 * dpr, 8 * dpr, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#1b1306';
+      ctx.fillStyle = '#2a1d00';
       ctx.fillText(String(i + 1), x, plot.y + 10.5 * dpr);
     });
 

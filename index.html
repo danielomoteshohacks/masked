@@ -3,314 +3,239 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b0c0e" />
-    <meta
-      name="description"
-      content="Masked measures how much hidden detail you can hear inside your own music."
-    />
+    <meta name="theme-color" content="#0d0a26" />
+    <meta name="description" content="Can your ears beat MP3? A five-minute listening game." />
     <title>Masked</title>
   </head>
   <body>
+    <!-- Slowly drifting colour glows behind everything. -->
+    <div class="backdrop" aria-hidden="true"><i class="glow g1"></i><i class="glow g2"></i><i class="glow g3"></i></div>
+
     <header class="topbar">
-      <a class="wordmark" href="./" aria-label="Masked, home">
+      <a class="wordmark" href="./" aria-label="Masked, start again">
         <span class="wordmark-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        Masked
+        masked
       </a>
-      <ol class="stepper" aria-label="Progress">
-        <li data-step="song"><span>01</span>Song</li>
-        <li data-step="headphones"><span>02</span>Headphones</li>
-        <li data-step="test"><span>03</span>Test</li>
-        <li data-step="results"><span>04</span>Results</li>
+      <ol id="flow-progress" class="flow-progress" aria-label="Progress" hidden>
+        <li data-step="headphones">Headphones</li>
+        <li data-step="test">Test</li>
+        <li data-step="score">Score</li>
       </ol>
     </header>
 
-    <main class="page">
-      <!-- Home: what it is, what it is for, and where to drop a song. -->
-      <section id="view-home" class="view">
-        <div class="hero">
-          <p class="eyebrow">Perceptual listening test</p>
-          <h1>How much of your music can you actually hear?</h1>
-          <p class="lead">
-            Loud sounds hide quieter ones close to them in pitch and time. Formats like MP3 and AAC
-            use a model of an "average" listener to delete what it thinks you cannot hear. Masked runs
-            that kind of model on your own song and measures, in a blind test, where your ears sit
-            relative to it.
-          </p>
-        </div>
+    <input id="file-input" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg" hidden />
 
-        <div class="use-cases" role="list">
-          <button class="use-case" type="button" data-intent="lossless" role="listitem">
-            <span class="use-case-index">A</span>
-            <span class="use-case-title">Do I need lossless?</span>
-            <span class="use-case-text">
-              Find out whether the detail a lossy format throws away is detail you can hear.
-            </span>
-            <span class="use-case-cta">Take the listening test</span>
-          </button>
-          <button class="use-case" type="button" data-intent="wasted" role="listitem">
-            <span class="use-case-index">B</span>
-            <span class="use-case-title">What in my mix is wasted?</span>
-            <span class="use-case-text">
-              See and hear the parts of your track that are buried under louder sounds.
-            </span>
-            <span class="use-case-cta">Open the Masking Map</span>
-          </button>
-          <button class="use-case" type="button" data-intent="fatigue" role="listitem">
-            <span class="use-case-index">C</span>
-            <span class="use-case-title">Track ear fatigue</span>
-            <span class="use-case-text">
-              Test now, then again after a long session. Compare how your threshold moves.
-            </span>
-            <span class="use-case-cta">Start a fatigue check</span>
-          </button>
-        </div>
+    <main class="app">
+      <!-- Home -->
+      <section id="screen-home" class="screen home">
+        <canvas id="home-wave" class="hero-wave" aria-hidden="true"></canvas>
+        <h1 class="display">Can your ears <span class="gradient-text">beat MP3?</span></h1>
+        <p class="subtitle">A five-minute listening game. Can you hear what music apps leave out?</p>
+        <button id="start-main" class="cta" type="button">Take the 5-minute test</button>
+        <button id="own-song" class="text-button" type="button">Use your own song</button>
+        <p id="home-note" class="note"></p>
+        <p id="home-error" class="error" role="alert" hidden></p>
+        <button class="studio-link" type="button" data-go-studio>Studio mode for producers</button>
+      </section>
 
-        <div id="drop-zone" class="drop-zone">
-          <p id="intent-prompt" class="drop-title">Start with a song you know well</p>
-          <p class="drop-text">
-            Drop an audio file here, or choose one. WAV, MP3 or M4A. It stays on your device:
-            nothing is uploaded.
-          </p>
-          <div class="drop-actions">
-            <label class="button primary">
-              Choose a song
-              <input id="file-input" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg" hidden />
-            </label>
-            <button id="demo-button" class="button" type="button" hidden>Use the demo track</button>
-          </div>
-        </div>
+      <!-- Headphones, part 1: volume -->
+      <section id="screen-volume" class="screen" hidden>
+        <p class="kicker">Before we start</p>
+        <h2 class="title">Put your headphones on</h2>
+        <p class="body">Play the music and set the volume to where you'd normally listen. Then leave it there.</p>
+        <canvas id="volume-wave" class="wave-panel" aria-hidden="true"></canvas>
+        <button id="volume-play" class="round-play" type="button" aria-label="Play the music">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="icon-play" d="M8 5v14l11-7z" /><path class="icon-stop" d="M7 7h10v10H7z" /></svg>
+        </button>
+        <button id="volume-done" class="cta" type="button">Sounds good</button>
+      </section>
 
-        <div class="how">
-          <h2 class="section-label">How it works</h2>
-          <ol class="how-list">
-            <li><strong>Analyse.</strong> Your song is mapped for sound that the standard model says is masked.</li>
-            <li><strong>Check.</strong> A short tone test confirms you are on headphones.</li>
-            <li>
-              <strong>Test.</strong> A blind A/B/X test adjusts how much is removed until you are right
-              about 71% of the time.
-            </li>
-            <li><strong>Result.</strong> Your personal offset from the model, in dB.</li>
-          </ol>
+      <!-- Headphones, part 2: the tone check -->
+      <section id="screen-tones" class="screen" hidden>
+        <p class="kicker">Quick check</p>
+        <h2 class="title">Which hum is the quietest?</h2>
+        <p class="body">You'll hear three low hums, one after another. Tap the quietest one. Each set plays once.</p>
+        <div id="tones-dots" class="dots" aria-hidden="true"></div>
+        <button id="tones-play" class="cta" type="button">Play the hums</button>
+        <div class="choice-row" role="group" aria-label="Which hum was quietest?">
+          <button class="choice" type="button" data-hp="0" disabled>1</button>
+          <button class="choice" type="button" data-hp="1" disabled>2</button>
+          <button class="choice" type="button" data-hp="2" disabled>3</button>
+        </div>
+        <div id="tones-result" class="result-box" aria-live="polite" hidden>
+          <p id="tones-result-text"></p>
+          <button id="tones-continue" class="cta" type="button">Start the test</button>
+          <button id="tones-retry" class="text-button" type="button">Try the check again</button>
         </div>
       </section>
 
-      <!-- Song: analysis, Masking Map, playback, and the test passage. -->
-      <section id="view-song" class="view" hidden>
-        <div class="song-header">
+      <!-- The test -->
+      <section id="screen-test" class="screen" hidden>
+        <div class="question-head">
+          <p id="question-label" class="kicker">Question 1</p>
+          <div class="bar"><div id="question-fill" class="bar-fill"></div></div>
+        </div>
+        <div id="test-wait" class="wait" hidden>
+          <span class="spinner" aria-hidden="true"></span>
+          <p class="title-small">Almost ready</p>
+          <div class="bar"><div id="wait-fill" class="bar-fill"></div></div>
+          <p id="wait-text" class="body"></p>
+        </div>
+        <div id="test-main">
+          <h2 class="title">Which one sounds different?</h2>
+          <p id="test-hint" class="body" aria-live="polite"></p>
+          <div class="cards" role="group" aria-label="Three versions">
+            <button class="sound-card" type="button" data-card="0" aria-label="Version 1"><canvas aria-hidden="true"></canvas><span>1</span></button>
+            <button class="sound-card" type="button" data-card="1" aria-label="Version 2"><canvas aria-hidden="true"></canvas><span>2</span></button>
+            <button class="sound-card" type="button" data-card="2" aria-label="Version 3"><canvas aria-hidden="true"></canvas><span>3</span></button>
+          </div>
+          <button id="test-submit" class="cta" type="button" disabled>Pick one</button>
+          <p class="note keys">Keyboard: 1, 2, 3 to listen. Enter to answer.</p>
+        </div>
+        <button id="test-quit" class="text-button" type="button">Quit the test</button>
+      </section>
+
+      <!-- Score -->
+      <section id="screen-score" class="screen score" hidden>
+        <p class="kicker">Your Ear Score</p>
+        <div class="score-ring">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <defs>
+              <linearGradient id="ring-gradient" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#a78bfa" />
+                <stop offset="0.5" stop-color="#e05ccf" />
+                <stop offset="1" stop-color="#ff7a6b" />
+              </linearGradient>
+            </defs>
+            <circle class="ring-track" cx="60" cy="60" r="52" />
+            <circle id="score-ring-fill" class="ring-fill" cx="60" cy="60" r="52" />
+          </svg>
+          <p class="score-number"><span id="score-value">0</span><small>out of 100</small></p>
+        </div>
+        <p id="score-sentence" class="lead"></p>
+        <p id="score-takeaway" class="takeaway"></p>
+        <p id="score-caveat" class="note" hidden></p>
+        <button id="score-share" class="cta" type="button">Share my score</button>
+        <div class="button-row">
+          <button id="score-retake" class="soft-button" type="button">Retake</button>
+          <button id="score-own" class="soft-button" type="button">Try your own song</button>
+        </div>
+        <button class="studio-link" type="button" data-go-studio="results">See the details in Studio mode</button>
+      </section>
+
+      <!-- Studio mode: the technical tools, for producers -->
+      <section id="screen-studio" class="screen studio" hidden>
+        <div class="studio-head">
           <div>
-            <p class="eyebrow">Your song</p>
-            <h1 id="song-title" class="song-title"></h1>
-            <p id="song-meta" class="song-meta"></p>
+            <p class="kicker">Studio mode</p>
+            <h2 id="studio-title" class="title">Load a song</h2>
+            <p id="studio-meta" class="meta"></p>
           </div>
-          <button id="change-song" class="button ghost" type="button">Change song</button>
+          <div class="studio-actions">
+            <button id="studio-choose" class="soft-button" type="button">Choose a song</button>
+            <button id="studio-back" class="text-button" type="button">Back to the game</button>
+          </div>
         </div>
-        <p id="intent-note" class="intent-note" hidden></p>
 
-        <div id="analysis-progress" class="panel state" hidden>
-          <p class="state-title">Analysing the whole song</p>
-          <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Analysis progress">
-            <div id="progress-fill" class="progress-fill"></div>
+        <div id="studio-empty" class="panel center">
+          <p class="body">Load a song to see what MP3-style compression would throw away, and hear it on its own.</p>
+          <button id="studio-demo" class="soft-button" type="button" hidden>Use the demo track</button>
+        </div>
+
+        <div id="analysis-progress" class="panel" hidden>
+          <p class="title-small">Analysing the whole song</p>
+          <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Analysis progress">
+            <div id="progress-fill" class="bar-fill"></div>
           </div>
-          <div class="state-row">
+          <div class="split">
             <span id="progress-label" class="mono">0%</span>
-            <button id="cancel-analysis" class="link-button" type="button">Cancel</button>
+            <button id="cancel-analysis" class="text-button" type="button">Cancel</button>
           </div>
-          <p class="hint">You can already play the original while this runs.</p>
         </div>
 
-        <div id="analysis-error" class="panel state error-state" hidden>
-          <p class="state-title">The analysis did not finish</p>
-          <p id="analysis-error-text" class="hint"></p>
-          <button id="retry-analysis" class="button" type="button">Try again</button>
+        <div id="analysis-error" class="panel is-error" hidden>
+          <p class="title-small">The analysis did not finish</p>
+          <p id="analysis-error-text" class="note"></p>
+          <button id="retry-analysis" class="soft-button" type="button">Try again</button>
         </div>
 
-        <article class="panel map-panel">
-          <header class="panel-header">
-            <div>
-              <p class="section-label">Masking Map</p>
-              <p id="map-headline" class="map-headline">Waiting for the analysis...</p>
-              <p id="map-sub" class="hint"></p>
+        <div id="studio-content" hidden>
+          <article class="panel">
+            <p class="panel-label">Masking Map</p>
+            <p class="map-explainer"><i class="swatch gold"></i>Gold = parts of the song nobody can hear.</p>
+            <p id="map-headline" class="map-headline"></p>
+            <p id="map-sub" class="note"></p>
+            <div class="map-frame">
+              <canvas id="masking-map" class="masking-map" tabindex="0" aria-label="Spectrogram of the song. Gold marks masked content. Tap to play from that point."></canvas>
+              <div id="map-empty" class="map-empty"><span class="spinner" aria-hidden="true"></span></div>
             </div>
-            <div class="legend" aria-hidden="true">
-              <span><i class="swatch kept"></i>Audible</span>
-              <span><i class="swatch masked"></i>Masked</span>
+            <div id="moments" class="moments" aria-label="Moments with the most hidden detail"></div>
+          </article>
+
+          <article class="panel">
+            <p class="panel-label">Listen</p>
+            <div class="segmented" role="group" aria-label="Version">
+              <button type="button" data-play="original" aria-pressed="true">Original</button>
+              <button type="button" data-play="processed" disabled>Processed</button>
+              <button type="button" data-play="removed" disabled>Removed</button>
             </div>
-          </header>
-          <div class="map-frame">
-            <canvas
-              id="masking-map"
-              class="masking-map"
-              tabindex="0"
-              aria-label="Spectrogram of the song. Masked content is highlighted. Tap to play from that point."
-            ></canvas>
-            <div id="map-empty" class="map-empty"><span class="spinner" aria-hidden="true"></span></div>
-          </div>
-          <div id="moments" class="moments" aria-label="Moments with the most hidden detail"></div>
-        </article>
-
-        <article class="panel transport" aria-label="Playback">
-          <div class="segmented" role="group" aria-label="Version">
-            <button type="button" data-play="original" aria-pressed="true">Original</button>
-            <button type="button" data-play="processed" disabled>Processed</button>
-            <button type="button" data-play="removed" disabled>Removed</button>
-          </div>
-          <div class="transport-row">
-            <button id="play-toggle" class="play-button" type="button" aria-label="Play">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path class="icon-play" d="M8 5v14l11-7z" /><path class="icon-stop" d="M7 7h10v10H7z" /></svg>
-            </button>
-            <span id="time-readout" class="mono time-readout">0:00 / 0:00</span>
-            <label class="switch">
-              <input id="boost" type="checkbox" />
-              <span class="switch-track" aria-hidden="true"></span>
-              +20 dB on Removed
-            </label>
-          </div>
-          <p class="hint">
-            Switching is instant and keeps your place. "Removed" plays only what the model takes out.
-            Space bar plays and stops.
-          </p>
-          <details class="advanced">
-            <summary>Model offset</summary>
-            <label for="offset" class="offset-label">
-              Offset from the standard model: <output id="offset-value" class="mono">0 dB</output>
-            </label>
-            <input id="offset" type="range" min="-20" max="20" step="1" value="0" />
-            <div class="state-row">
-              <span class="hint">Negative removes less, positive removes more.</span>
-              <button id="reanalyze" class="button" type="button" disabled>Analyse again</button>
+            <div class="transport-row">
+              <button id="play-toggle" class="round-play small" type="button" aria-label="Play">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path class="icon-play" d="M8 5v14l11-7z" /><path class="icon-stop" d="M7 7h10v10H7z" /></svg>
+              </button>
+              <span id="time-readout" class="mono time-readout">0:00 / 0:00</span>
+              <label class="switch">
+                <input id="boost" type="checkbox" />
+                <span class="switch-track" aria-hidden="true"></span>
+                +20 dB on Removed
+              </label>
             </div>
-          </details>
-        </article>
-
-        <article id="test-setup" class="panel test-setup">
-          <header class="panel-header">
-            <div>
-              <p class="section-label">Listening test</p>
-              <p class="panel-title">Choose the passage to test</p>
+            <canvas id="studio-wave" class="wave-strip" aria-hidden="true"></canvas>
+            <p class="note">Switching is instant and keeps your place. Removed plays only what the model takes out. Space bar plays and stops.</p>
+            <div class="slider-block">
+              <label for="offset">Model offset: <output id="offset-value" class="mono">0 dB</output></label>
+              <input id="offset" type="range" min="-20" max="20" step="1" value="0" />
+              <div class="split">
+                <span class="note">Negative removes less, positive removes more.</span>
+                <button id="reanalyze" class="soft-button" type="button" disabled>Analyse again</button>
+              </div>
             </div>
-          </header>
-          <label for="passage-length" class="offset-label">
-            Loop length: <output id="passage-length-value" class="mono">10 s</output>
-          </label>
-          <input id="passage-length" type="range" min="5" max="30" step="1" value="10" />
-          <div class="segmented two" role="radiogroup" aria-label="Passage">
-            <button type="button" role="radio" data-passage="auto" aria-checked="true">Most hidden detail</button>
-            <button type="button" role="radio" data-passage="manual" aria-checked="false">Choose my own</button>
-          </div>
-          <canvas
-            id="waveform"
-            class="waveform"
-            tabindex="0"
-            role="slider"
-            aria-label="Test passage start, in seconds. Drag, tap, or use the arrow keys."
-            aria-valuemin="0"
-          ></canvas>
-          <p id="region-label" class="hint"></p>
-          <button id="start-test" class="button primary wide" type="button" disabled>
-            Continue to the headphone check
-          </button>
-          <p class="hint">About 5 to 10 minutes. Headphones required.</p>
-        </article>
-      </section>
+          </article>
 
-      <!-- Test: volume, headphone check, ABX quiz, results. Driven by src/ui/test-flow.ts. -->
-      <section id="test" class="view" hidden>
-        <div class="test-bar">
-          <button id="test-exit" class="link-button" type="button">Exit the test</button>
+          <article class="panel">
+            <p class="panel-label">Test passage</p>
+            <div class="slider-block">
+              <label for="passage-length">Loop length: <output id="passage-length-value" class="mono">10 s</output></label>
+              <input id="passage-length" type="range" min="5" max="30" step="1" value="10" />
+            </div>
+            <div class="segmented two" role="radiogroup" aria-label="Passage">
+              <button type="button" role="radio" data-passage="auto" aria-checked="true">Most hidden detail</button>
+              <button type="button" role="radio" data-passage="manual" aria-checked="false">Choose my own</button>
+            </div>
+            <canvas id="waveform" class="waveform" tabindex="0" role="slider" aria-label="Test passage start, in seconds. Drag, tap, or use the arrow keys." aria-valuemin="0"></canvas>
+            <p id="region-label" class="note"></p>
+            <button id="studio-test" class="cta" type="button" disabled>Take the test on this passage</button>
+          </article>
         </div>
 
-        <div id="step-volume" class="step panel" hidden>
-          <p class="section-label">Headphones · 1 of 2</p>
-          <h2>Set a comfortable volume</h2>
-          <p>
-            Put on your headphones and play the reference: your test passage. Set your device volume so
-            it is comfortably loud, as you would normally listen, and keep it there for the whole test.
-          </p>
-          <div class="row">
-            <button id="volume-play" class="button" type="button" aria-pressed="false">Play reference</button>
-            <button id="volume-done" class="button primary" type="button">The volume is set</button>
-          </div>
-        </div>
-
-        <div id="step-headphones" class="step panel" hidden>
-          <p class="section-label">Headphones · 2 of 2</p>
-          <h2>Headphone check</h2>
-          <p>
-            You will hear three low tones. Pick the one that is <strong>quietest</strong>. Each set plays
-            only once, so listen closely.
-          </p>
-          <div class="dots" id="hp-dots" aria-hidden="true"></div>
-          <p id="hp-progress" class="hint"></p>
-          <button id="hp-play" class="button primary wide" type="button">Play the tones</button>
-          <div class="row answers" role="group" aria-label="Which tone was quietest?">
-            <button class="button" type="button" data-hp="0" disabled>First</button>
-            <button class="button" type="button" data-hp="1" disabled>Second</button>
-            <button class="button" type="button" data-hp="2" disabled>Third</button>
-          </div>
-          <p id="hp-result" class="readout" aria-live="polite"></p>
-          <button id="hp-continue" class="button primary wide" type="button" hidden>Continue to the test</button>
-        </div>
-
-        <div id="step-quiz" class="step panel" hidden>
-          <p class="section-label">Listening test</p>
-          <h2>Which one is X?</h2>
-          <p>
-            A and B are two versions of your passage. X is one of them. Switch as often as you like, then
-            decide which one X is.
-          </p>
-          <div class="quiz-meter">
-            <span id="quiz-progress" class="mono"></span>
-            <div class="progress small"><div id="quiz-fill" class="progress-fill"></div></div>
-          </div>
-          <div class="abx" role="group" aria-label="Listen">
-            <button class="abx-key" type="button" data-abx="A" disabled>A</button>
-            <button class="abx-key" type="button" data-abx="X" disabled>X</button>
-            <button class="abx-key" type="button" data-abx="B" disabled>B</button>
-          </div>
-          <div class="row answers" role="group" aria-label="Your answer">
-            <button id="answer-a" class="button primary" type="button" disabled>X is A</button>
-            <button id="answer-b" class="button primary" type="button" disabled>X is B</button>
-          </div>
-          <p id="quiz-status" class="hint center" aria-live="polite"></p>
-          <p class="hint center keys">Keyboard: A, B, X to switch. 1 = "X is A", 2 = "X is B".</p>
-        </div>
-
-        <div id="step-results" class="step" hidden>
-          <div class="panel result-hero">
-            <p class="section-label">Your result</p>
-            <p id="result-value" class="result-value mono"></p>
-            <p class="hint">offset from the standard masking model</p>
-            <p id="result-headline" class="headline"></p>
-            <p id="result-caveat" class="hint warning" hidden></p>
-          </div>
-          <div class="panel">
-            <dl id="result-stats" class="stats"></dl>
-            <div id="result-chart" class="chart" role="img" aria-label="Offset used on each trial"></div>
-          </div>
-          <div id="history-panel" class="panel" hidden>
-            <p class="section-label">Your history on this device</p>
-            <p id="history-note" class="hint"></p>
+        <article id="studio-results" class="panel" hidden>
+          <p class="panel-label">Last test, in detail</p>
+          <dl id="result-stats" class="stats"></dl>
+          <div id="result-chart" class="chart" role="img" aria-label="Level used on each question"></div>
+          <div id="history-block" hidden>
+            <p class="panel-label">Earlier results on this device</p>
             <ol id="history-list" class="history-list"></ol>
           </div>
-          <div class="row">
-            <button id="share-card" class="button primary" type="button">Save result card</button>
-            <button id="export-json" class="button" type="button">Download trials (JSON)</button>
-          </div>
-          <div class="row">
-            <button id="results-retest" class="button" type="button">Test again</button>
-            <button id="results-back" class="button ghost" type="button">Back to the song</button>
-          </div>
-        </div>
+          <button id="export-json" class="soft-button" type="button">Download all answers (JSON)</button>
+        </article>
       </section>
 
       <footer class="disclaimer" role="note">
-        <strong>This is not a medical hearing test.</strong> It measures how you hear one specific kind
-        of audio processing, on your own equipment, in your own room. It cannot diagnose hearing loss.
-        If you have concerns about your hearing, see an audiologist.
+        Just for fun and curiosity. <strong>This is not a medical hearing test</strong> and can't tell you
+        whether you have hearing loss. Worried about your hearing? See an audiologist.
       </footer>
     </main>
 
-    <!-- Errors and notices that are not tied to one panel. -->
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
